@@ -1,12 +1,20 @@
-use rust_bundler::parse_and_dumps;
+use std::path::PathBuf;
 
-fn main() {
-    println!("{}", parse_and_dumps(r#"use a;
+use clap::Parser;
+use rust_bundler::Bundler;
 
-struct A(i32);
-
-fn main() {
-    let a = A(1);
+#[derive(Debug, Parser)]
+struct Args {
+    root: PathBuf,
+    #[clap(long)]
+    bin: Option<String>,
 }
-"#).unwrap());
+
+fn main() {
+    let args = Args::parse();
+    let b = Bundler {
+        target_project_root: args.root,
+        target_bin: args.bin,
+    };
+    println!("{}", b.dumps().unwrap());
 }
