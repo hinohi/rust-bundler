@@ -1,3 +1,5 @@
+mod utils;
+
 use std::{
     fmt::{self, Debug, Display},
     fs, io,
@@ -5,7 +7,7 @@ use std::{
 };
 
 use quote::ToTokens;
-use syn::{parse, parse_file, visit_mut::VisitMut, ItemMod};
+use syn::{parse, parse_file, visit_mut::VisitMut, File, Ident, ItemMod};
 
 pub struct Bundler {
     pub target_project_root: PathBuf,
@@ -13,14 +15,20 @@ pub struct Bundler {
 }
 
 struct BundleVisitor {
-    current_target_root: PathBuf,
+    mod_tree: ModPathTree,
     error: Option<Error>,
+}
+
+struct ModPathTree {
+    root_path: PathBuf,
+    mod_stack: Vec<String>,
 }
 
 #[derive(Debug)]
 pub enum Error {
     VagueBin,
     NoBin,
+    ModNotFound,
     IoError(io::Error),
     ParseError(parse::Error),
 }
@@ -31,7 +39,10 @@ impl Bundler {
         let mut file = parse_file(&content).map_err(Error::ParseError)?;
 
         let mut visitor = BundleVisitor {
-            current_target_root: self.target_project_root.join("src"),
+            mod_tree: ModPathTree {
+                root_path: self.target_project_root.join("src"),
+                mod_stack: Vec::new(),
+            },
             error: None,
         };
         syn::visit_mut::visit_file_mut(&mut visitor, &mut file);
@@ -83,34 +94,57 @@ impl Bundler {
     }
 }
 
-impl BundleVisitor {
-    fn read_sibling_mod(&self, rs: &str) -> io::Result<String> {
-        let path = self.current_target_root.join(rs);
-        fs::read_to_string(path)
+impl ModPathTree {
+    fn push(&mut self, name: &Ident) {
+        self.mod_stack.push(name.to_string());
+    }
+
+    fn pop(&mut self) {
+        self.mod_stack.pop();
+    }
+
+    fn current_path(&self) -> PathBuf {
+        let mut path = self.root_path.clone();
+        for m in self.mod_stack.iter() {
+            path.push(m);
+        }
+        path
+    }
+
+    fn read_sibling_mod(&self, name: &Ident) -> Result<File, Error> {
+        let rs = name.to_string() + ".rs";
+        let path = self.current_path().join(rs);
+        if path.is_file() {
+            let file = utils::parse_rs(path)?;
+            return Ok(file);
+        }
+
+        let path = self.current_path().join(name.to_string());
+        if path.is_dir() {
+            let file = utils::parse_rs(path.join("mod.rs"))?;
+            return Ok(file);
+        }
+        Err(Error::ModNotFound)
     }
 }
 
 impl VisitMut for BundleVisitor {
     fn visit_item_mod_mut(&mut self, i: &mut ItemMod) {
         if i.content.is_none() {
-            let name = i.ident.to_string() + ".rs";
-            let s = match self.read_sibling_mod(&name) {
+            let mut file = match self.mod_tree.read_sibling_mod(&i.ident) {
+                Ok(file) => file,
                 Err(e) => {
-                    self.error = Some(Error::IoError(e));
+                    self.error = Some(e);
                     return;
                 }
-                Ok(s) => s,
             };
-            let file = match parse_file(&s) {
-                Err(e) => {
-                    self.error = Some(Error::ParseError(e));
-                    return;
-                }
-                Ok(s) => s,
-            };
+            self.mod_tree.push(&i.ident);
+            syn::visit_mut::visit_file_mut(self, &mut file);
+            self.mod_tree.pop();
             i.content = Some((syn::token::Brace::default(), file.items));
+        } else {
+            syn::visit_mut::visit_item_mod_mut(self, i);
         }
-        syn::visit_mut::visit_item_mod_mut(self, i);
     }
 }
 
@@ -121,6 +155,7 @@ impl Display for Error {
                 f.write_str("rust-bundler could not determine which binary to bundle")
             }
             Error::NoBin => f.write_str("runt-bundler could not find any binary to bundle"),
+            Error::ModNotFound => f.write_str("mod not found"),
             Error::IoError(e) => fmt::Debug::fmt(&e, f),
             Error::ParseError(e) => fmt::Debug::fmt(&e, f),
         }
