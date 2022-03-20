@@ -6,12 +6,17 @@ Bundle Rust projects into a single main.rs file for use in competition programmi
 
 ## Features
 
-Nothing
+* Expand mod
+* Expand target project crate
+
+## How to use
+
+```sh
+cargo run -- . | ~/.cargo/bin/rustfmt
+```
 
 ## TODO
 
-* [ ] Expand mod
-* [ ] Expand target project crate
 * [ ] Handle `#[test]`
 * [ ] Handle features/cfg
 * [ ] Auto rustfmt

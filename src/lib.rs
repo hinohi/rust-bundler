@@ -138,7 +138,7 @@ impl Bundler {
         let cargo_path = self.target_project_root.join("Cargo.toml");
         let content = fs::read_to_string(cargo_path).map_err(Error::IoError)?;
         let config: CargoToml = toml::from_str(&content).map_err(|_| Error::NoCrateName)?;
-        Ok(config.package.name.to_ascii_lowercase())
+        Ok(config.package.name.replace('-', "_"))
     }
 }
 
