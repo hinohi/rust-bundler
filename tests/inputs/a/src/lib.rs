@@ -1,3 +1,7 @@
+pub fn a(a: i32) -> i32 {
+    a + 2
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

@@ -7,15 +7,30 @@ use std::{
 };
 
 use quote::ToTokens;
-use syn::{parse, parse_file, visit_mut::VisitMut, File, Ident, ItemMod};
+use serde::Deserialize;
+use syn::{
+    parse, parse_file, visit_mut::VisitMut, File, Ident, ItemMod, ItemUse, UsePath, UseTree,
+};
 
 pub struct Bundler {
     pub target_project_root: PathBuf,
     pub target_bin: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct CargoToml {
+    package: CargoPackage,
+}
+
+#[derive(Deserialize)]
+struct CargoPackage {
+    name: String,
+}
+
 struct BundleVisitor {
+    crate_name: String,
     mod_tree: ModPathTree,
+    expand_crate: bool,
     error: Option<Error>,
 }
 
@@ -26,6 +41,7 @@ struct ModPathTree {
 
 #[derive(Debug)]
 pub enum Error {
+    NoCrateName,
     VagueBin,
     NoBin,
     ModNotFound,
@@ -36,28 +52,53 @@ pub enum Error {
 impl Bundler {
     pub fn dumps(&self) -> Result<String, Error> {
         let content = self.find_main()?;
-        let mut file = parse_file(&content).map_err(Error::ParseError)?;
+        let crate_name = self.crate_name()?;
+        let (main, expand_crate) = self.parse_modify(&content, &crate_name)?;
+        let lib = if expand_crate {
+            let lib_path = self.target_project_root.join("src/lib.rs");
+            let content = fs::read_to_string(lib_path).map_err(Error::IoError)?;
+            let (lib, _) = self.parse_modify(&content, &crate_name)?;
+            lib.items
+        } else {
+            Vec::new()
+        };
 
+        let mut ret = String::new();
+        for attr in main.attrs.iter() {
+            ret.push_str(&attr.to_token_stream().to_string());
+        }
+
+        if !lib.is_empty() {
+            ret.push_str(&format!("mod {} {{", self.crate_name().unwrap()));
+            for item in lib.iter() {
+                ret.push_str(&item.to_token_stream().to_string());
+            }
+            ret.push('}');
+        }
+
+        for item in main.items.iter() {
+            ret.push_str(&item.to_token_stream().to_string());
+        }
+        Ok(ret)
+    }
+
+    fn parse_modify(&self, content: &str, crate_name: &str) -> Result<(File, bool), Error> {
+        let mut file = parse_file(content).map_err(Error::ParseError)?;
         let mut visitor = BundleVisitor {
+            crate_name: crate_name.to_owned(),
             mod_tree: ModPathTree {
                 root_path: self.target_project_root.join("src"),
                 mod_stack: Vec::new(),
             },
+            expand_crate: false,
             error: None,
         };
         syn::visit_mut::visit_file_mut(&mut visitor, &mut file);
         if let Some(e) = visitor.error {
-            return Err(e);
+            Err(e)
+        } else {
+            Ok((file, visitor.expand_crate))
         }
-
-        let mut ret = String::new();
-        for attr in file.attrs.iter() {
-            ret.push_str(&attr.to_token_stream().to_string());
-        }
-        for item in file.items.iter() {
-            ret.push_str(&item.to_token_stream().to_string());
-        }
-        Ok(ret)
     }
 
     fn find_main(&self) -> Result<String, Error> {
@@ -87,10 +128,17 @@ impl Bundler {
                 } else {
                     let bin = bins.pop().unwrap();
                     println!("{}", bin);
-                    return Ok(bin);
+                    Ok(bin)
                 }
             }
         }
+    }
+
+    fn crate_name(&self) -> Result<String, Error> {
+        let cargo_path = self.target_project_root.join("Cargo.toml");
+        let content = fs::read_to_string(cargo_path).map_err(Error::IoError)?;
+        let config: CargoToml = toml::from_str(&content).map_err(|_| Error::NoCrateName)?;
+        Ok(config.package.name.to_ascii_lowercase())
     }
 }
 
@@ -146,11 +194,50 @@ impl VisitMut for BundleVisitor {
             syn::visit_mut::visit_item_mod_mut(self, i);
         }
     }
+
+    fn visit_item_use_mut(&mut self, i: &mut ItemUse) {
+        match &i.tree {
+            UseTree::Path(path) => {
+                if path.ident == self.crate_name {
+                    self.expand_crate = true;
+                }
+                if path.ident == "crate" {
+                    // convert `use crate::[something]` -> `use crate::[crate-name]::[something]`
+                    let colon2_token = path.colon2_token;
+                    let tree = UseTree::Path(UsePath {
+                        ident: Ident::new(&self.crate_name, path.ident.span()),
+                        colon2_token,
+                        tree: path.tree.clone(),
+                    });
+                    let path = UsePath {
+                        ident: path.ident.clone(),
+                        colon2_token,
+                        tree: Box::new(tree),
+                    };
+                    i.tree = UseTree::Path(path);
+                }
+            }
+            UseTree::Name(name) => {
+                if name.ident == self.crate_name {
+                    self.expand_crate = true;
+                }
+            }
+            UseTree::Rename(name) => {
+                if name.ident == self.crate_name {
+                    self.expand_crate = true;
+                }
+            }
+            _ => (),
+        }
+    }
 }
 
 impl Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Error::NoCrateName => {
+                f.write_str("rust-bundler could not find crate name in Cargo.toml")
+            }
             Error::VagueBin => {
                 f.write_str("rust-bundler could not determine which binary to bundle")
             }
