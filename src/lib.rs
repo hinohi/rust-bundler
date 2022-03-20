@@ -94,7 +94,7 @@ impl Bundler {
             expand_crate: false,
             error: None,
         };
-        syn::visit_mut::visit_file_mut(&mut visitor, &mut file);
+        visitor.visit_file_mut(&mut file);
         if let Some(e) = visitor.error {
             Err(e)
         } else {
@@ -233,7 +233,96 @@ impl BundleVisitor {
     }
 }
 
+fn strip_doc(attrs: &[syn::Attribute]) -> Vec<syn::Attribute> {
+    attrs
+        .iter()
+        .filter(|a| !utils::path_is(&a.path, "doc"))
+        .cloned()
+        .collect()
+}
+
 impl VisitMut for BundleVisitor {
+    fn visit_file_mut(&mut self, i: &mut syn::File) {
+        i.items = self.filter_items(&i.items);
+        i.attrs = strip_doc(&i.attrs);
+        syn::visit_mut::visit_file_mut(self, i);
+    }
+
+    fn visit_impl_item_mut(&mut self, i: &mut syn::ImplItem) {
+        match i {
+            syn::ImplItem::Const(i) => {
+                i.attrs = strip_doc(&i.attrs);
+            }
+            syn::ImplItem::Method(i) => {
+                i.attrs = strip_doc(&i.attrs);
+            }
+            syn::ImplItem::Type(i) => {
+                i.attrs = strip_doc(&i.attrs);
+            }
+            syn::ImplItem::Macro(i) => {
+                i.attrs = strip_doc(&i.attrs);
+            }
+            syn::ImplItem::Verbatim(_) => {}
+            _ => (),
+        }
+        syn::visit_mut::visit_impl_item_mut(self, i);
+    }
+
+    fn visit_item_mut(&mut self, i: &mut syn::Item) {
+        match i {
+            syn::Item::Const(i) => {
+                i.attrs = strip_doc(&i.attrs);
+            }
+            syn::Item::Enum(i) => {
+                i.attrs = strip_doc(&i.attrs);
+            }
+            syn::Item::ExternCrate(i) => {
+                i.attrs = strip_doc(&i.attrs);
+            }
+            syn::Item::Fn(i) => {
+                i.attrs = strip_doc(&i.attrs);
+            }
+            syn::Item::ForeignMod(i) => {
+                i.attrs = strip_doc(&i.attrs);
+            }
+            syn::Item::Impl(i) => {
+                i.attrs = strip_doc(&i.attrs);
+            }
+            syn::Item::Macro(i) => {
+                i.attrs = strip_doc(&i.attrs);
+            }
+            syn::Item::Macro2(i) => {
+                i.attrs = strip_doc(&i.attrs);
+            }
+            syn::Item::Mod(i) => {
+                i.attrs = strip_doc(&i.attrs);
+            }
+            syn::Item::Static(i) => {
+                i.attrs = strip_doc(&i.attrs);
+            }
+            syn::Item::Struct(i) => {
+                i.attrs = strip_doc(&i.attrs);
+            }
+            syn::Item::Trait(i) => {
+                i.attrs = strip_doc(&i.attrs);
+            }
+            syn::Item::TraitAlias(i) => {
+                i.attrs = strip_doc(&i.attrs);
+            }
+            syn::Item::Type(i) => {
+                i.attrs = strip_doc(&i.attrs);
+            }
+            syn::Item::Union(i) => {
+                i.attrs = strip_doc(&i.attrs);
+            }
+            syn::Item::Use(i) => {
+                i.attrs = strip_doc(&i.attrs);
+            }
+            _ => (),
+        }
+        syn::visit_mut::visit_item_mut(self, i);
+    }
+
     fn visit_item_mod_mut(&mut self, i: &mut syn::ItemMod) {
         let brace = syn::token::Brace::default();
         if i.content.is_none() {
@@ -244,9 +333,8 @@ impl VisitMut for BundleVisitor {
                     return;
                 }
             };
-            file.items = self.filter_items(&file.items);
             self.mod_tree.push(&i.ident);
-            syn::visit_mut::visit_file_mut(self, &mut file);
+            self.visit_file_mut(&mut file);
             self.mod_tree.pop();
             i.content = Some((brace, file.items));
         } else {
@@ -291,6 +379,26 @@ impl VisitMut for BundleVisitor {
             }
             _ => (),
         }
+    }
+
+    fn visit_trait_item_mut(&mut self, i: &mut syn::TraitItem) {
+        match i {
+            syn::TraitItem::Const(i) => {
+                i.attrs = strip_doc(&i.attrs);
+            }
+            syn::TraitItem::Method(i) => {
+                i.attrs = strip_doc(&i.attrs);
+            }
+            syn::TraitItem::Type(i) => {
+                i.attrs = strip_doc(&i.attrs);
+            }
+            syn::TraitItem::Macro(i) => {
+                i.attrs = strip_doc(&i.attrs);
+            }
+            syn::TraitItem::Verbatim(_) => (),
+            _ => (),
+        }
+        syn::visit_mut::visit_trait_item_mut(self, i);
     }
 }
 

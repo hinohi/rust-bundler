@@ -9,6 +9,8 @@ Bundle Rust projects into a single main.rs file for use in competition programmi
 * Expand mod
 * Expand target project crate
 * Handle `#[test]` and `#[cfg(test)]`
+  * When pass `--test` option, dump with test
+* Strip document (this is force, no option)
 
 ## How to use
 
