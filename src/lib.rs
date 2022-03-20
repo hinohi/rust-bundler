@@ -1,5 +1,3 @@
-mod utils;
-
 use std::{
     fmt::{self, Debug, Display},
     fs, io,
@@ -8,9 +6,9 @@ use std::{
 
 use quote::ToTokens;
 use serde::Deserialize;
-use syn::{
-    parse, parse_file, visit_mut::VisitMut, File, Ident, ItemMod, ItemUse, UsePath, UseTree,
-};
+use syn::{parse, visit_mut::VisitMut, Ident};
+
+mod utils;
 
 pub struct Bundler {
     pub target_project_root: PathBuf,
@@ -82,8 +80,8 @@ impl Bundler {
         Ok(ret)
     }
 
-    fn parse_modify(&self, content: &str, crate_name: &str) -> Result<(File, bool), Error> {
-        let mut file = parse_file(content).map_err(Error::ParseError)?;
+    fn parse_modify(&self, content: &str, crate_name: &str) -> Result<(syn::File, bool), Error> {
+        let mut file = syn::parse_file(content).map_err(Error::ParseError)?;
         let mut visitor = BundleVisitor {
             crate_name: crate_name.to_owned(),
             mod_tree: ModPathTree {
@@ -159,7 +157,7 @@ impl ModPathTree {
         path
     }
 
-    fn read_sibling_mod(&self, name: &Ident) -> Result<File, Error> {
+    fn read_sibling_mod(&self, name: &Ident) -> Result<syn::File, Error> {
         let rs = name.to_string() + ".rs";
         let path = self.current_path().join(rs);
         if path.is_file() {
@@ -177,7 +175,7 @@ impl ModPathTree {
 }
 
 impl VisitMut for BundleVisitor {
-    fn visit_item_mod_mut(&mut self, i: &mut ItemMod) {
+    fn visit_item_mod_mut(&mut self, i: &mut syn::ItemMod) {
         if i.content.is_none() {
             let mut file = match self.mod_tree.read_sibling_mod(&i.ident) {
                 Ok(file) => file,
@@ -195,7 +193,9 @@ impl VisitMut for BundleVisitor {
         }
     }
 
-    fn visit_item_use_mut(&mut self, i: &mut ItemUse) {
+    fn visit_item_use_mut(&mut self, i: &mut syn::ItemUse) {
+        use syn::{UsePath, UseTree};
+
         match &i.tree {
             UseTree::Path(path) => {
                 if path.ident == self.crate_name {
