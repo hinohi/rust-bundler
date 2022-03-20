@@ -8,6 +8,7 @@ Bundle Rust projects into a single main.rs file for use in competition programmi
 
 * Expand mod
 * Expand target project crate
+* Handle `#[test]` and `#[cfg(test)]`
 
 ## How to use
 
@@ -17,7 +18,6 @@ cargo run -- . | ~/.cargo/bin/rustfmt
 
 ## TODO
 
-* [ ] Handle `#[test]`
 * [ ] Handle features/cfg
 * [ ] Auto rustfmt
 * [ ] Minify

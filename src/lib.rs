@@ -13,6 +13,7 @@ mod utils;
 pub struct Bundler {
     pub target_project_root: PathBuf,
     pub target_bin: Option<String>,
+    pub test: bool,
 }
 
 #[derive(Deserialize)]
@@ -27,6 +28,7 @@ struct CargoPackage {
 
 struct BundleVisitor {
     crate_name: String,
+    test: bool,
     mod_tree: ModPathTree,
     expand_crate: bool,
     error: Option<Error>,
@@ -84,6 +86,7 @@ impl Bundler {
         let mut file = syn::parse_file(content).map_err(Error::ParseError)?;
         let mut visitor = BundleVisitor {
             crate_name: crate_name.to_owned(),
+            test: self.test,
             mod_tree: ModPathTree {
                 root_path: self.target_project_root.join("src"),
                 mod_stack: Vec::new(),
@@ -174,8 +177,65 @@ impl ModPathTree {
     }
 }
 
+impl BundleVisitor {
+    fn is_test(&self, attr: &syn::Attribute) -> bool {
+        if utils::path_is(&attr.path, "test") {
+            true
+        } else if utils::path_is(&attr.path, "cfg")
+            && attr.tokens.to_token_stream().to_string() == "(test)"
+        {
+            true
+        } else {
+            false
+        }
+    }
+
+    fn is_skip(&self, attrs: &[syn::Attribute]) -> bool {
+        if self.test {
+            return false;
+        }
+        for attr in attrs {
+            if self.is_test(attr) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn filter_items(&self, items: &[syn::Item]) -> Vec<syn::Item> {
+        let mut ret = Vec::new();
+        for item in items {
+            let skip = match item {
+                syn::Item::Const(i) => self.is_skip(&i.attrs),
+                syn::Item::Enum(i) => self.is_skip(&i.attrs),
+                syn::Item::ExternCrate(i) => self.is_skip(&i.attrs),
+                syn::Item::Fn(i) => self.is_skip(&i.attrs),
+                syn::Item::ForeignMod(i) => self.is_skip(&i.attrs),
+                syn::Item::Impl(i) => self.is_skip(&i.attrs),
+                syn::Item::Macro(i) => self.is_skip(&i.attrs),
+                syn::Item::Macro2(i) => self.is_skip(&i.attrs),
+                syn::Item::Mod(i) => self.is_skip(&i.attrs),
+                syn::Item::Static(i) => self.is_skip(&i.attrs),
+                syn::Item::Struct(i) => self.is_skip(&i.attrs),
+                syn::Item::Trait(i) => self.is_skip(&i.attrs),
+                syn::Item::TraitAlias(i) => self.is_skip(&i.attrs),
+                syn::Item::Type(i) => self.is_skip(&i.attrs),
+                syn::Item::Union(i) => self.is_skip(&i.attrs),
+                syn::Item::Use(i) => self.is_skip(&i.attrs),
+                syn::Item::Verbatim(_) => false,
+                _ => false,
+            };
+            if !skip {
+                ret.push(item.clone());
+            }
+        }
+        ret
+    }
+}
+
 impl VisitMut for BundleVisitor {
     fn visit_item_mod_mut(&mut self, i: &mut syn::ItemMod) {
+        let brace = syn::token::Brace::default();
         if i.content.is_none() {
             let mut file = match self.mod_tree.read_sibling_mod(&i.ident) {
                 Ok(file) => file,
@@ -184,11 +244,13 @@ impl VisitMut for BundleVisitor {
                     return;
                 }
             };
+            file.items = self.filter_items(&file.items);
             self.mod_tree.push(&i.ident);
             syn::visit_mut::visit_file_mut(self, &mut file);
             self.mod_tree.pop();
-            i.content = Some((syn::token::Brace::default(), file.items));
+            i.content = Some((brace, file.items));
         } else {
+            i.content = Some((brace, self.filter_items(&i.content.as_ref().unwrap().1)));
             syn::visit_mut::visit_item_mod_mut(self, i);
         }
     }

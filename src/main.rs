@@ -8,6 +8,8 @@ struct Args {
     root: PathBuf,
     #[clap(long)]
     bin: Option<String>,
+    #[clap(long)]
+    test: bool,
 }
 
 fn main() {
@@ -15,6 +17,7 @@ fn main() {
     let b = Bundler {
         target_project_root: args.root,
         target_bin: args.bin,
+        test: args.test,
     };
     println!("{}", b.dumps().unwrap());
 }
